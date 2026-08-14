@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Buscador de Autos México", page_icon="🚗", layout="wide")
 
@@ -11,6 +13,52 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- Lógica de Scraping ---
+def buscar_en_mercadolibre(modelo, presupuesto, ubicacion):
+    # Formatear la búsqueda para la URL
+    query = modelo.lower().replace(" ", "-") if modelo else "autos"
+    if ubicacion:
+        query += f"-{ubicacion.lower().replace(' ', '-')}"
+        
+    url = f"https://listado.mercadolibre.com.mx/vehiculos/{query}"
+    
+    # Simular ser un navegador real para que no nos bloqueen
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    }
+    
+    resultados = []
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Encontrar todas las tarjetas de productos
+            items = soup.find_all("li", class_="ui-search-layout__item")
+            
+            for item in items[:20]:  # Analizar los primeros 20 resultados
+                try:
+                    titulo = item.find("h2").text
+                    precio_str = item.find("span", class_="andes-money-amount__fraction").text.replace(",", "")
+                    precio = int(precio_str)
+                    link_tag = item.find("a")
+                    link = link_tag["href"] if link_tag else url
+                    
+                    # Filtrar estrictamente por presupuesto
+                    if precio <= presupuesto:
+                        resultados.append({
+                            "Auto": titulo,
+                            "Precio": precio,
+                            "Sitio": "MercadoLibre",
+                            "Link": link
+                        })
+                except Exception:
+                    continue # Si falla un auto, pasa al siguiente
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+        
+    return resultados
+
+# --- Interfaz Gráfica ---
 st.markdown('<div class="main-header">🚗 Buscador de Autos México</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Encuentra tu auto ideal en los principales sitios de venta de México</div>', unsafe_allow_html=True)
 
@@ -20,39 +68,37 @@ with col1:
     presupuesto = st.number_input("💵 Presupuesto máximo (MXN)", value=300000, step=10000)
 
 with col2:
-    modelo = st.text_input("🚘 Marca o modelo (opcional)", placeholder="Ej: Toyota, Honda, Nissan")
+    modelo = st.text_input("🚘 Marca o modelo (opcional)", placeholder="Ej: Toyota Corolla")
 
 with col3:
-    ubicacion = st.text_input("📍 Ciudad o estado", placeholder="Ej: Ciudad de México, Monterrey")
+    ubicacion = st.text_input("📍 Ciudad o estado (opcional)", placeholder="Ej: Jalisco")
 
 if st.button("🔎 Buscar Autos"):
-    st.success(f"Mostrando resultados para presupuesto hasta ${presupuesto:,.2f} MXN")
-    
-    # Base de datos simulada / borrador de scraping
-    datos = [
-        {"Auto": "Nissan Versa 2020", "Precio": 210000, "Ubicación": "Ciudad de México", "Sitio": "Kavak", "Link": "https://www.kavak.com/mx"},
-        {"Auto": "Toyota Corolla 2019", "Precio": 285000, "Ubicación": "Monterrey", "Sitio": "MercadoLibre", "Link": "https://www.mercadolibre.com.mx"},
-        {"Auto": "Honda Civic 2018", "Precio": 295000, "Ubicación": "Guadalajara", "Sitio": "AutosMéxico", "Link": "https://www.autosmexico.mx"},
-        {"Auto": "Volkswagen Jetta 2021", "Precio": 320000, "Ubicación": "Ciudad de México", "Sitio": "Kavak", "Link": "https://www.kavak.com/mx"},
-        {"Auto": "Mazda 3 2020", "Precio": 270000, "Ubicación": "Querétaro", "Sitio": "MercadoLibre", "Link": "https://www.mercadolibre.com.mx"},
-    ]
-    
-    df = pd.DataFrame(datos)
-    
-    # Filtrar por presupuesto
-    df_filtrado = df[df["Precio"] <= presupuesto]
-    
-    # Filtrar por modelo si escribió algo
-    if modelo:
-        df_filtrado = df_filtrado[df_filtrado["Auto"].str.contains(modelo, case=False)]
-        
-    if not df_filtrado.empty:
-        # Formatear precio
-        df_mostrar = df_filtrado.copy()
-        df_mostrar["Precio"] = df_mostrar["Precio"].apply(lambda x: f"${x:,.2f} MXN")
-        st.dataframe(df_mostrar, use_container_width=True)
+    if not modelo and not ubicacion:
+        st.warning("Por favor, ingresa al menos una marca/modelo o una ubicación para mejorar la búsqueda.")
     else:
-        st.warning("No se encontraron autos con esos criterios de búsqueda.")
+        with st.spinner("Buscando en tiempo real en MercadoLibre México... 🕵️‍♂️"):
+            datos_reales = buscar_en_mercadolibre(modelo, presupuesto, ubicacion)
+            
+            if datos_reales:
+                st.success(f"¡Encontramos {len(datos_reales)} autos dentro de tu presupuesto!")
+                df = pd.DataFrame(datos_reales)
+                
+                # Formatear el precio para que se vea bonito ($ XXX,XXX.00 MXN)
+                df_mostrar = df.copy()
+                df_mostrar["Precio"] = df_mostrar["Precio"].apply(lambda x: f"${x:,.2f} MXN")
+                
+                # Mostrar la tabla permitiendo hacer clic en los enlaces
+                st.data_editor(
+                    df_mostrar,
+                    column_config={
+                        "Link": st.column_config.LinkColumn("Ver publicación")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                st.warning("No se encontraron autos con esos criterios o superan tu presupuesto.")
 
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #9CA3AF;'>Creado con Streamlit • Búsqueda de autos en México</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #9CA3AF;'>Creado con Streamlit • Scraping en tiempo real</div>", unsafe_allow_html=True)
