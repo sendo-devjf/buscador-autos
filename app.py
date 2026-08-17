@@ -55,11 +55,8 @@ def buscar_mercadolibre_api(presupuesto, modelo, ubicacion):
                     fecha_inicio = (datetime.now() - timedelta(days=dias_publicado)).strftime("%d/%m/%Y")
                     vendedor = item.get("seller", {}).get("nickname", "Vendedor Anónimo")
                     
-                    # FORZAR ENLACE DIRECTO AL ARTÍCULO ESPECÍFICO DE ML
-                    item_id = item.get("id")
+                    # URL directa a la oferta de MercadoLibre
                     enlace_real = item.get("permalink")
-                    if not enlace_real or "catalog" in enlace_real:
-                        enlace_real = f"https://auto.mercadolibre.com.mx/{item_id}"
                     
                     resultados.append({
                         "Auto": item.get("title"),
@@ -80,33 +77,29 @@ def buscar_mercadolibre_api(presupuesto, modelo, ubicacion):
 def buscar_otros_sitios(presupuesto, modelo, ubicacion):
     resultados = []
     if presupuesto >= 120000:
-        auto_base = modelo.title() if modelo else "Sedan"
-        ubi_base = ubicacion.title() if ubicacion else "Mexico"
+        auto_base = modelo.strip() if modelo else "autos"
+        busqueda_encoded = urllib.parse.quote(auto_base)
         
-        # Crear término de búsqueda para URLs
-        busqueda_url = urllib.parse.quote(f"{auto_base}")
+        # URLs de búsqueda funcionales que evitan el 404
+        link_kavak = f"https://www.kavak.com/mx/comprar-autos?search={busqueda_encoded}"
+        link_semi = f"https://www.seminuevos.com/busqueda?keyword={busqueda_encoded}"
         
-        for i in range(3):
+        for i in range(2):
             precio_simulado = random.randint(120000, int(presupuesto))
             libro_azul, valoracion_precio = calcular_libro_azul_y_valoracion(precio_simulado)
             
-            # LINKS DINÁMICOS PARA QUE VAYAN A LA BÚSQUEDA ESPECÍFICA
-            link_kavak = f"https://www.kavak.com/mx/seminuevos?q={busqueda_url}"
-            link_semi = f"https://www.seminuevos.com/vehiculos?q={busqueda_url}"
-            
-            # Alternar entre sitios simulados
             sitio_actual = "Kavak" if i % 2 == 0 else "SemiNuevos"
             link_actual = link_kavak if i % 2 == 0 else link_semi
             
             resultados.append({
-                "Auto": f"{auto_base} {random.randint(2016, 2022)} (Sugerencia)",
+                "Auto": f"{auto_base.title()} (Búsqueda en {sitio_actual})",
                 "Precio": precio_simulado,
                 "Libro Azul Est.": libro_azul,
                 "Valoración Precio": valoracion_precio,
-                "Condición": "Revisado (Aprox. 60,000 km)",
+                "Condición": "Revisado / Certificado",
                 "Inicio Oferta": f"Hace {random.randint(1, 15)} días",
                 "Contacto": sitio_actual,
-                "Ubicación": ubi_base,
+                "Ubicación": ubicacion.title() if ubicacion else "México",
                 "Sitio": sitio_actual,
                 "Enlace": link_actual
             })
@@ -131,17 +124,15 @@ if st.button("🔎 Buscar Autos e Iniciar Análisis"):
         todos_los_autos = datos_ml + datos_otros
         
         if todos_los_autos:
-            st.success(f"¡Encontramos {len(todos_los_autos)} autos! Haz clic en '🔗 Ir al anuncio' para ver la oferta real.")
+            st.success(f"¡Encontramos {len(todos_los_autos)} resultados!")
             df = pd.DataFrame(todos_los_autos).sort_values(by="Precio", ascending=True)
             
-            # Formato nativo
             st.dataframe(
                 df,
                 column_config={
                     "Precio": st.column_config.NumberColumn("Precio (MXN)", format="$%d"),
                     "Libro Azul Est.": st.column_config.NumberColumn("Libro Azul Est. (MXN)", format="$%d"),
-                    # Link interactivo corregido
-                    "Enlace": st.column_config.LinkColumn("Enlace directo", display_text="🔗 Ir al anuncio")
+                    "Enlace": st.column_config.LinkColumn("Enlace directo", display_text="🔗 Ver oferta")
                 },
                 hide_index=True,
                 use_container_width=True
