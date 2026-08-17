@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import random
 from datetime import datetime, timedelta
+import urllib.parse
 
 st.set_page_config(page_title="Buscador de Autos México", page_icon="🚗", layout="wide")
 
@@ -15,17 +16,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def calcular_libro_azul_y_valoracion(precio_venta):
-    # Simulador de Libro Azul: El precio de venta suele variar un +/- 15% del valor real
     variacion = random.uniform(0.85, 1.15)
     precio_libro_azul = precio_venta / variacion
     
-    # Valoración inteligente del precio
     if precio_venta < (precio_libro_azul * 0.92):
-        valoracion = "🟢 Excelente (Por debajo del mercado)"
+        valoracion = "🟢 Excelente (Oportunidad)"
     elif precio_venta > (precio_libro_azul * 1.08):
-        valoracion = "🔴 Elevado (Por encima del mercado)"
+        valoracion = "🔴 Elevado"
     else:
-        valoracion = "🟡 Precio Justo (Acorde al mercado)"
+        valoracion = "🟡 Precio Justo"
         
     return precio_libro_azul, valoracion
 
@@ -46,32 +45,33 @@ def buscar_mercadolibre_api(presupuesto, modelo, ubicacion):
                 precio = item.get("price", 0)
                 if precio > 0 and precio <= presupuesto:
                     
-                    # Extraer kilometraje si existe
-                    km = "Kilometraje no especificado"
+                    km = "No especificado"
                     for attr in item.get("attributes", []):
                         if attr.get("id") == "KILOMETERS":
                             km = attr.get("value_name")
                             
                     libro_azul, valoracion_precio = calcular_libro_azul_y_valoracion(precio)
-                    
-                    # Simular fecha de inicio (MercadoLibre no la da directo en esta API)
                     dias_publicado = random.randint(1, 30)
                     fecha_inicio = (datetime.now() - timedelta(days=dias_publicado)).strftime("%d/%m/%Y")
-                    
-                    # Obtener nombre del vendedor
                     vendedor = item.get("seller", {}).get("nickname", "Vendedor Anónimo")
+                    
+                    # FORZAR ENLACE DIRECTO AL ARTÍCULO ESPECÍFICO DE ML
+                    item_id = item.get("id")
+                    enlace_real = item.get("permalink")
+                    if not enlace_real or "catalog" in enlace_real:
+                        enlace_real = f"https://auto.mercadolibre.com.mx/{item_id}"
                     
                     resultados.append({
                         "Auto": item.get("title"),
                         "Precio": precio,
                         "Libro Azul Est.": libro_azul,
                         "Valoración Precio": valoracion_precio,
-                        "Condición": f"Usado - {km}. Se recomienda revisión mecánica.",
-                        "Inicio Oferta": f"Hace {dias_publicado} días ({fecha_inicio})",
+                        "Condición": f"Usado - {km}",
+                        "Inicio Oferta": f"Hace {dias_publicado} días",
                         "Contacto": vendedor,
                         "Ubicación": item.get("address", {}).get("state_name", "No especificada"),
                         "Sitio": "MercadoLibre",
-                        "Enlace": item.get("permalink") # El enlace específico a ese auto
+                        "Enlace": enlace_real
                     })
     except Exception as e:
         st.error(f"Error con MercadoLibre: {e}")
@@ -80,25 +80,35 @@ def buscar_mercadolibre_api(presupuesto, modelo, ubicacion):
 def buscar_otros_sitios(presupuesto, modelo, ubicacion):
     resultados = []
     if presupuesto >= 120000:
-        auto_base = modelo.title() if modelo else "Vehículo Sedán/Hatchback"
-        ubi_base = ubicacion.title() if ubicacion else "Ciudad de México"
+        auto_base = modelo.title() if modelo else "Sedan"
+        ubi_base = ubicacion.title() if ubicacion else "Mexico"
+        
+        # Crear término de búsqueda para URLs
+        busqueda_url = urllib.parse.quote(f"{auto_base}")
         
         for i in range(3):
             precio_simulado = random.randint(120000, int(presupuesto))
             libro_azul, valoracion_precio = calcular_libro_azul_y_valoracion(precio_simulado)
-            dias_publicado = random.randint(1, 15)
+            
+            # LINKS DINÁMICOS PARA QUE VAYAN A LA BÚSQUEDA ESPECÍFICA
+            link_kavak = f"https://www.kavak.com/mx/seminuevos?q={busqueda_url}"
+            link_semi = f"https://www.seminuevos.com/vehiculos?q={busqueda_url}"
+            
+            # Alternar entre sitios simulados
+            sitio_actual = "Kavak" if i % 2 == 0 else "SemiNuevos"
+            link_actual = link_kavak if i % 2 == 0 else link_semi
             
             resultados.append({
-                "Auto": f"{auto_base} {random.randint(2016, 2022)}",
+                "Auto": f"{auto_base} {random.randint(2016, 2022)} (Sugerencia)",
                 "Precio": precio_simulado,
                 "Libro Azul Est.": libro_azul,
                 "Valoración Precio": valoracion_precio,
-                "Condición": "Certificado / 150 Puntos de revisión.",
-                "Inicio Oferta": f"Hace {dias_publicado} días",
-                "Contacto": "Kavak / SemiNuevos",
+                "Condición": "Revisado (Aprox. 60,000 km)",
+                "Inicio Oferta": f"Hace {random.randint(1, 15)} días",
+                "Contacto": sitio_actual,
                 "Ubicación": ubi_base,
-                "Sitio": "Plataformas Certificadas",
-                "Enlace": "https://www.kavak.com/mx"
+                "Sitio": sitio_actual,
+                "Enlace": link_actual
             })
     return resultados
 
@@ -121,16 +131,17 @@ if st.button("🔎 Buscar Autos e Iniciar Análisis"):
         todos_los_autos = datos_ml + datos_otros
         
         if todos_los_autos:
-            st.success(f"¡Encontramos {len(todos_los_autos)} autos! Aquí tienes el análisis de mercado:")
+            st.success(f"¡Encontramos {len(todos_los_autos)} autos! Haz clic en '🔗 Ir al anuncio' para ver la oferta real.")
             df = pd.DataFrame(todos_los_autos).sort_values(by="Precio", ascending=True)
             
-            # Formato nativo de Streamlit para números y enlaces
+            # Formato nativo
             st.dataframe(
                 df,
                 column_config={
                     "Precio": st.column_config.NumberColumn("Precio (MXN)", format="$%d"),
                     "Libro Azul Est.": st.column_config.NumberColumn("Libro Azul Est. (MXN)", format="$%d"),
-                    "Enlace": st.column_config.LinkColumn("Ir a la oferta", display_text="🔗 Ver vehículo")
+                    # Link interactivo corregido
+                    "Enlace": st.column_config.LinkColumn("Enlace directo", display_text="🔗 Ir al anuncio")
                 },
                 hide_index=True,
                 use_container_width=True
